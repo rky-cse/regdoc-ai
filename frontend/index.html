@@ -1,0 +1,40 @@
+<!-- frontend/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RegDoc AI Change Analyzer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>RegDoc AI Change Analyzer</h1>
+  </header>
+
+  <main>
+    <form id="compareForm">
+      <div class="file-input">
+        <label for="fileV1">Before Document:</label>
+        <input type="file" id="fileV1" name="fileV1" accept=".txt" required />
+      </div>
+
+      <div class="file-input">
+        <label for="fileV2">After Document:</label>
+        <input type="file" id="fileV2" name="fileV2" accept=".txt" required />
+      </div>
+
+      <div class="actions">
+        <button type="submit">Analyze Changes</button>
+      </div>
+    </form>
+
+    <section id="results">
+      <!-- Change summaries will be injected here -->
+    </section>
+  </main>
+
+  <script src="main.js"></script>
+</body>
+</html>

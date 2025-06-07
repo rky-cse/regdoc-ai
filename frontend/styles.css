@@ -1,0 +1,107 @@
+/* frontend/styles.css */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f7f7f7;
+  color: #333;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header {
+  background: #004080;
+  color: #fff;
+  padding: 1rem;
+  text-align: center;
+}
+
+main {
+  flex: 1;
+  padding: 2rem;
+  max-width: 800px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.file-input {
+  margin-bottom: 1rem;
+}
+
+.file-input label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+}
+
+.file-input input[type="file"] {
+  width: 100%;
+}
+
+.actions {
+  text-align: right;
+}
+
+.actions button {
+  background: #004080;
+  color: #fff;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: #003060;
+}
+
+#results {
+  margin-top: 2rem;
+}
+
+/* Change card styles */
+.change-card {
+  border: 1px solid #ddd;
+  border-left: 5px solid #004080;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.change-card.added {
+  border-left-color: #28a745;
+}
+
+.change-card.deleted {
+  border-left-color: #dc3545;
+}
+
+.change-card.modified {
+  border-left-color: #ffc107;
+}
+
+.change-card h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.change-card p {
+  margin-bottom: 0.5rem;
+}
+
+.change-card .type {
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+}
