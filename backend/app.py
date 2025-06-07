@@ -1,4 +1,3 @@
-import subprocess
 import json
 import logging
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
@@ -8,6 +7,9 @@ from typing import List, Dict, AsyncGenerator
 import difflib
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from langchain_community.llms import Ollama
+from langchain.chains import ConversationChain
+from langchain.memory import ConversationBufferMemory
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -26,9 +28,7 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # Keep this for non-stream endpoints, but streaming errors are handled in-stream
     logger.error(f"Unhandled error: {exc}", exc_info=True)
-    # If response already started, do nothing
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
@@ -64,47 +64,39 @@ def detect_changes(old_text: str, new_text: str) -> List[Dict]:
     return changes
 
 
+# LangChain setup
+llm = Ollama(model="mistral")  # removed streaming=True
+memory = ConversationBufferMemory()
+conversation = ConversationChain(llm=llm, memory=memory)
+
+
 def analyze_with_llm(change: Dict) -> Dict:
     prompt = (
         "You are a regulatory compliance assistant. Output valid JSON with:\n"
         "1) change_summary: one-sentence summary.\n"
-        "2) change_type: one of ['New Requirement','Clarification of Existing Requirement',\n"
-        "   'Deletion of Requirement','Minor Edit'].\n"
+        "2) change_type: one of ['New Requirement','Clarification of Existing Requirement',"
+        "'Deletion of Requirement','Minor Edit'].\n"
         "3) potential_impact: brief impact on SOPs.\n\n"
         f"Old Text:\n{change['old']}\n\nNew Text:\n{change['new']}"
     )
     try:
-        proc = subprocess.run(
-            ['ollama', 'run', 'mistral', prompt],
-            check=True,
-            capture_output=True,
-            text=False,
-            timeout=60
-        )
-        raw = proc.stdout.decode('utf-8', errors='ignore')
-    except subprocess.TimeoutExpired:
-        logger.error("LLM call timed out")
-        raise
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr.decode('utf-8', errors='ignore') if isinstance(e.stderr, bytes) else e.stderr
-        logger.error(f"LLM error: {stderr}")
-        raise
-    try:
-        return json.loads(raw)
+        response = conversation.run(prompt)
+        return json.loads(response)
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse LLM JSON: {raw}")
+        logger.error(f"Failed to parse LLM response: {response}")
+        raise
+    except Exception as e:
+        logger.error(f"LLM error: {str(e)}")
         raise
 
+
 async def change_streamer(changes: List[Dict]) -> AsyncGenerator[bytes, None]:
-    """
-    Yields JSON stream per change, with delays and error handling in-stream.
-    """
     executor = ThreadPoolExecutor(max_workers=1)
     loop = asyncio.get_event_loop()
     yield b'{"changes": ['
     first = True
     for change in changes:
-        await asyncio.sleep(10)
+        await asyncio.sleep(1)  # throttle to simulate natural processing
         try:
             if change['change_type'] in ('Added', 'Modified'):
                 details = await loop.run_in_executor(executor, analyze_with_llm, change)
@@ -116,21 +108,20 @@ async def change_streamer(changes: List[Dict]) -> AsyncGenerator[bytes, None]:
                 }
             result = {**change, **details}
         except Exception as e:
-            logger.error(f"Error processing change: {e}")
             result = {
                 **change,
                 'change_summary': 'Error during analysis',
                 'change_type': 'Error',
                 'potential_impact': str(e)
             }
-        chunk = json.dumps(result)
         if not first:
             yield b','
         else:
             first = False
-        yield chunk.encode('utf-8')
+        yield json.dumps(result).encode('utf-8')
     yield b']}'
     executor.shutdown(wait=False)
+
 
 @app.post("/api/analyze")
 async def analyze(
@@ -147,6 +138,7 @@ async def analyze(
         change_streamer(raw_changes),
         media_type="application/json"
     )
+
 
 if __name__ == '__main__':
     import uvicorn
