@@ -4,13 +4,13 @@
 
 - ## Understanding of the Problem
 
-    - Regulatory guidelines are structured with section numbers (e.g., 1.2.3, 2.2).
+    - Regulatory guidelines are structured with hierarchical section numbers (e.g., 1.2.3, 2.2).
 
-    - Page numbers and in-text numeric references can be confused with sections, so a reliable parsing method is required.
+    - Page numbers and in-text numeric references also appear but lack dots, so a parsing rule is needed to distinguish true sections from incidental numbers.
 
-    - Manual, line-by-line comparison of lengthy documents is time-consuming, error-prone, and risks non-compliance.
+    - Quality Assurance teams currently perform manual, line-by-line comparisons—an error-prone, time-consuming process that risks non-compliance and audit findings.
 
-    - Automating both change detection and initial impact analysis accelerates internal reviews and SOP updates.
+    - Automating the detection of Added, Deleted, and Modified sections and providing initial impact analysis accelerates SOP updates and reduces human error.
 
 - ## What I Did
 
