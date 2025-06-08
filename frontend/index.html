@@ -1,4 +1,3 @@
-<!-- frontend/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,31 +8,48 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header>
-    <h1>RegDoc AI Change Analyzer</h1>
-  </header>
+  <div class="container">
+    <header class="header">
+      <h1 class="header__title">RegDoc AI Change Analyzer</h1>
+      <p class="header__subtitle">Intelligent document comparison and analysis</p>
+    </header>
 
-  <main>
-    <form id="compareForm">
-      <div class="file-input">
-        <label for="fileV1">Before Document:</label>
-        <input type="file" id="fileV1" name="fileV1" accept=".txt" required />
-      </div>
+    <main class="main">
+      <form id="compareForm" class="form">
+        <div class="form__section">
+          <div class="input-group">
+            <label for="fileV1" class="input-group__label">Before Document</label>
+            <div class="file-input">
+              <input type="file" id="fileV1" name="fileV1" accept=".txt" required class="file-input__field" />
+              <div class="file-input__display">
+                <span class="file-input__text">Choose file...</span>
+                <span class="file-input__button">Browse</span>
+              </div>
+            </div>
+          </div>
 
-      <div class="file-input">
-        <label for="fileV2">After Document:</label>
-        <input type="file" id="fileV2" name="fileV2" accept=".txt" required />
-      </div>
+          <div class="input-group">
+            <label for="fileV2" class="input-group__label">After Document</label>
+            <div class="file-input">
+              <input type="file" id="fileV2" name="fileV2" accept=".txt" required class="file-input__field" />
+              <div class="file-input__display">
+                <span class="file-input__text">Choose file...</span>
+                <span class="file-input__button">Browse</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <div class="actions">
-        <button type="submit">Analyze Changes</button>
-      </div>
-    </form>
+        <div class="form__actions">
+          <button type="submit" class="btn btn--primary">Analyze Changes</button>
+        </div>
+      </form>
 
-    <section id="results">
-      <!-- Change summaries will be injected here -->
-    </section>
-  </main>
+      <section id="results" class="results">
+        <!-- Change summaries will be injected here -->
+      </section>
+    </main>
+  </div>
 
   <script src="main.js"></script>
 </body>
