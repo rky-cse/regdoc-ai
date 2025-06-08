@@ -112,10 +112,10 @@
 
     - Ollama or any local LLM server running at http://localhost:11434
 
-  - ### 🔧 Setup Steps
+  - ### Setup Steps
      - Clone the Repository
         ```  
-        https://github.com/rky-cse/regdoc-ai.git
+        git clone https://github.com/rky-cse/regdoc-ai.git
         cd regdoc-ai
         ```
     - Create and Activate a Virtual Environment
