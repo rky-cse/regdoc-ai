@@ -100,3 +100,49 @@
 
       - Ensured the user sees results incrementally, improving engagement during longer analyses.
 
+- ##  Startup Instructions
+  - ### Prerequisites
+    - Ensure you have the following installed:
+
+    - Python 3.9 or later
+
+    - pip
+
+    - virtualenv (optional but recommended)
+
+    - Ollama or any local LLM server running at http://localhost:11434
+
+  - ### 🔧 Setup Steps
+     - Clone the Repository
+        ```  
+        git clone https://github.com/your-username/your-repo.git
+        cd your-repo
+        ```
+    - Create and Activate a Virtual Environment
+        ```
+        python -m venv venv
+        source venv/bin/activate   # On Windows: venv\Scripts\activate
+        ```
+    - Install Dependencies
+
+        ```
+        pip install -r requirements.txt
+        ```
+    - Run the App
+
+        ```
+        uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+        
+        ```
+        The app will be available at: http://localhost:8000
+
+    -  LLM Backend
+        - To enable the LLM-powered analysis:
+
+        - Make sure a local LLM server (e.g., Mistral using Ollama) is running on http://localhost:11434.
+
+        - Example (if using Ollama):
+        ```
+        ollama run mistral
+        ```
+
