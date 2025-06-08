@@ -1,65 +1,74 @@
-import os
-import requests
+# llm_client.py
+
 import json
 import logging
-import time
-from typing import Dict
+import httpx
+from typing import Dict, Any
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-MODEL_NAME = "mistral"  # or any other model you loaded via `ollama run`
+logger = logging.getLogger("llm_client")
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+def correct_change_type(change: Dict[str, Any]) -> str:
+    old, new = change.get("old", "").strip(), change.get("new", "").strip()
+    if not old and new:
+        return "Added"
+    elif old and not new:
+        return "Removed"
+    elif old != new:
+        return "Modified"
+    return "Unchanged"
 
-def analyze_change_with_llm(text: str, category: str) -> Dict:
-    messages = [
-        {"role": "system", "content": f"You are an assistant that analyzes code changes for the '{category}' category."},
-        {"role": "user", "content": text}
-    ]
+async def analyze_with_llm(change: Dict[str, Any]) -> Dict[str, str]:
+    section = change.get("section")
+    old = change.get("old", "")
+    new = change.get("new", "")
+    corrected_type = correct_change_type(change)
 
-    payload = {
-        "model": MODEL_NAME,
-        "messages": messages,
-        "stream": False
-    }
+    prompt = (
+        "You are a regulatory compliance assistant. Output valid JSON with:\n"
+        "1) change_summary: one-sentence summary.\n"
+        "2) change_type: one of ['New Requirement','Clarification of Existing Requirement',"
+        "'Deletion of Requirement','Minor Edit'].\n"
+        "3) potential_impact: brief impact on SOPs.\n\n"
+        f"Section.Key: {section}\n"
+        f"Change Nature: {corrected_type}\n"
+        f"Old Text:\n{old}\n\n"
+        f"New Text:\n{new}"
+    )
 
-    logger.debug("Sending to LLM (up to 3 attempts)…")
-    content = None
+    logger.debug(f"Prompt to LLM:\n{prompt}")
 
-    for attempt in range(1, 4):
-        try:
-            resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload)
-            resp.raise_for_status()
-
-            resp_json = resp.json()
-            logger.debug("LLM full JSON: %s", json.dumps(resp_json, indent=2)[:500])
-
-            content = resp_json.get("message", {}).get("content", "")
-
-            if content.strip():
-                logger.debug("Got non‐empty assistant content on attempt %d", attempt)
-                break
-            else:
-                logger.warning("Empty assistant reply on attempt %d, retrying…", attempt)
-        except Exception as e:
-            logger.error("LLM HTTP error on attempt %d: %s", attempt, e)
-        
-        time.sleep(1)
-
-    if not content or not content.strip():
-        logger.warning("All attempts yielded empty content; using raw response text")
-        content = resp.text
-
-    # Try to parse content as JSON
     try:
-        parsed = json.loads(content)
-        required = {"change_summary", "change_type", "potential_impact"}
-        missing = required - set(parsed)
-        if missing:
-            raise ValueError(f"Missing keys: {missing}")
-        return parsed
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("POST", "http://localhost:11434/api/generate", json={
+                "model": "mistral",
+                "prompt": prompt,
+                "stream": True,
+            }) as response:
+                chunks = []
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
 
-    except (ValueError, json.JSONDecodeError) as e:
-        logger.error("Invalid JSON from LLM: %s", e, exc_info=True)
-        return {"change_summary": "", "change_type": "", "potential_impact": ""}
+                    logger.debug(f"LLM stream chunk: {line}")
 
+                    try:
+                        payload = json.loads(line)
+                        if payload.get("done"):
+                            break
+                        if "response" in payload:
+                            chunks.append(payload["response"])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Malformed stream chunk: {line}")
+
+                full_response = ''.join(chunks)
+                logger.info(f"LLM completed. Response: {full_response}")
+
+                return json.loads(full_response)
+
+    except Exception as e:
+        logger.error(f"LLM error: {e}", exc_info=True)
+        return {
+            'change_summary': 'Error during analysis',
+            'change_type': 'Error',
+            'potential_impact': str(e)
+        }
