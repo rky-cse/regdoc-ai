@@ -1,48 +1,78 @@
-import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 Change = Dict[str, str]
 
+def parse_section_header(line: str) -> Optional[str]:
+    """
+    If `line` starts with a section number like "1", "2.3", "10.11.5", followed
+    by whitespace or end-of-line, return that number string. Otherwise return None.
+    """
+    i = 0
+    n = len(line)
+
+    # First, we need at least one digit
+    if i < n and line[i].isdigit():
+        # collect the first run of digits
+        start = i
+        while i < n and line[i].isdigit():
+            i += 1
+
+        # then zero or more groups of ".<digits>"
+        while i < n and line[i] == '.':
+            i += 1
+            # require at least one digit after the dot
+            if i < n and line[i].isdigit():
+                while i < n and line[i].isdigit():
+                    i += 1
+            else:
+                # malformed (e.g. ends with a dot): cancel
+                return None
+
+        # ensure next char is whitespace or end-of-line
+        if i == n or line[i].isspace():
+            return line[start:i]
+    return None
+
+
 def split_into_section_map(text: str) -> Dict[str, str]:
     """
-    Parse the document into a map: section_number -> full section text.
-    A section starts on a line matching ^(\d+(?:\.\d+)*)\b and includes
-    all following lines up to (but not including) the next such header.
+    Parse `text` into a dict mapping section-number → full text block.
+    A section starts on a line where parse_section_header() returns non‐None.
+    Everything up to (but not including) the next such header belongs to that section.
     """
-    # Normalize line endings
     lines = text.splitlines(keepends=True)
-    section_re = re.compile(r'^(\d+(?:\.\d+)*)\b')
-
     section_map: Dict[str, List[str]] = {}
-    current_sec: str = None
+    current_sec: Optional[str] = None
     buffer: List[str] = []
 
-    def flush_section():
-        nonlocal current_sec, buffer
+    def flush():
+        nonlocal buffer, current_sec
         if current_sec is not None:
-            # Join everything we’ve buffered for this section
-            section_map[current_sec] = ''.join(buffer).rstrip()
+            # join and strip trailing newlines
+            section_map[current_sec] = ''.join(buffer).rstrip('\n')
         buffer = []
 
     for line in lines:
-        m = section_re.match(line)
-        if m:
-            # Found a new section header
-            # First flush the previous one
-            flush_section()
-            # Start a new buffer, include this header line
-            current_sec = m.group(1)
+        sec = parse_section_header(line)
+        if sec is not None:
+            # new section detected
+            flush()
+            current_sec = sec
             buffer = [line]
         else:
-            # Continuation of current section (or preamble if no section yet)
-            if current_sec is None:
-                # Skip any lines before the first numbered section
-                continue
-            buffer.append(line)
-
-    # Flush the last section
-    flush_section()
+            # continuation of current section block
+            if current_sec is not None:
+                buffer.append(line)
+            # else: ignore any preamble before first section
+    flush()
     return section_map
+
+
+def section_key(s: str) -> tuple:
+    """
+    Turn "1.2.11" → (1,2,11) so tuple-sorting respects numeric hierarchy.
+    """
+    return tuple(int(part) for part in s.split('.'))
 
 
 def detect_paragraph_section_changes(
@@ -50,81 +80,80 @@ def detect_paragraph_section_changes(
     new_text: str
 ) -> List[Change]:
     """
-    Compare two documents at the section level and return a flat list of changes.
+    Diff two texts at the section level using our custom header parser.
+    Returns a sorted list of change records:
+      {section, change_type, old, new}
+    in the order of numeric sections (1.*, then 2.*, etc.).
     """
     old_map = split_into_section_map(old_text)
     new_map = split_into_section_map(new_text)
 
     old_keys = set(old_map)
     new_keys = set(new_map)
+    all_keys = sorted(old_keys | new_keys, key=section_key)
 
     changes: List[Change] = []
 
-    # Added sections
-    for sec in sorted(new_keys - old_keys, key=lambda s: list(map(int, s.split('.')))):
-        changes.append({
-            "section": sec,
-            "change_type": "Added",
-            "old": "",
-            "new": new_map[sec]
-        })
+    for sec in all_keys:
+        in_old = sec in old_keys
+        in_new = sec in new_keys
 
-    # Removed sections
-    for sec in sorted(old_keys - new_keys, key=lambda s: list(map(int, s.split('.')))):
-        changes.append({
-            "section": sec,
-            "change_type": "Removed",
-            "old": old_map[sec],
-            "new": ""
-        })
-
-    # Modified sections
-    for sec in sorted(old_keys & new_keys, key=lambda s: list(map(int, s.split('.')))):
-        if old_map[sec] != new_map[sec]:
+        if in_old and not in_new:
             changes.append({
                 "section": sec,
-                "change_type": "Modified",
+                "change_type": "Removed",
                 "old": old_map[sec],
+                "new": ""
+            })
+        elif not in_old and in_new:
+            changes.append({
+                "section": sec,
+                "change_type": "Added",
+                "old": "",
                 "new": new_map[sec]
             })
+        else:
+            old_block = old_map[sec]
+            new_block = new_map[sec]
+            if old_block != new_block:
+                changes.append({
+                    "section": sec,
+                    "change_type": "Modified",
+                    "old": old_block,
+                    "new": new_block
+                })
+            # identical → no record
 
     return changes
 
 
-# --- quick sanity test ---
+# --- Quick sanity test ---
 if __name__ == "__main__":
     old = """
-1. Intro
-This is paragraph one.
+1.1 Introduction
+This is the first section.
 
-Still in section 1.
+1.2 Details
+Some details here.
 
-2. Details
-Detail line A.
-Detail line B.
-
-3. Conclusion
-Done.
+2.1 Next Section
+More text.
 """
     new = """
-1. Intro
-This is paragraph one, edited.
+1.1 Introduction
+This is the first section, with edits.
 
-Still in section 1.
+1.3 New Part
+Brand new content.
 
-2. Details
-Detail line A.
-Detail line B.
-New extra detail.
+1.2 Details
+Some details here.
 
-4. Appendix
-Some extra stuff.
+2.1 Next Section
+More text.
 """
-    for change in detect_paragraph_section_changes(old, new):
-        print(f"{change['change_type']} section {change['section']}")
-        print("OLD:")
-        print(change['old'])
+    for c in detect_paragraph_section_changes(old, new):
+        print(f"{c['change_type']} {c['section']}")
+        print("OLD:", repr(c['old']))
+        print("NEW:", repr(c['new']))
         print("---")
-        print("NEW:")
-        print(change['new'])
-        print("========\n")
