@@ -115,8 +115,8 @@
   - ### 🔧 Setup Steps
      - Clone the Repository
         ```  
-        git clone https://github.com/your-username/your-repo.git
-        cd your-repo
+        https://github.com/rky-cse/regdoc-ai.git
+        cd regdoc-ai
         ```
     - Create and Activate a Virtual Environment
         ```
