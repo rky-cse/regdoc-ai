@@ -1,136 +1,130 @@
 import re
-from difflib import SequenceMatcher
-from typing import List, Dict, Tuple
+from typing import Dict, List
 
-SectionName = str
-Paragraph = str
-Change = Dict[str, List[Tuple[int, Paragraph]]]
+Change = Dict[str, str]
 
-def split_into_sections(text: str) -> Dict[SectionName, List[Paragraph]]:
+def split_into_section_map(text: str) -> Dict[str, str]:
     """
-    Split text into sections based on headings like '1.', '1.2', '2.3.4', etc.,
-    then split each section into paragraphs (blocks separated by blank lines).
-    Returns a dict: { section_heading: [paragraph1, paragraph2, ...], ... }
+    Parse the document into a map: section_number -> full section text.
+    A section starts on a line matching ^(\d+(?:\.\d+)*)\b and includes
+    all following lines up to (but not including) the next such header.
     """
-    # Normalize line endings and strip trailing spaces
-    lines = [line.rstrip() for line in text.strip().splitlines()]
-    section_re = re.compile(r'^(\d+(?:\.\d+)*)(?:\s+|$)')  # captures "1", "1.2.3", etc.
+    # Normalize line endings
+    lines = text.splitlines(keepends=True)
+    section_re = re.compile(r'^(\d+(?:\.\d+)*)\b')
 
-    sections: Dict[SectionName, List[str]] = {}
-    current_sec = '0'  # default “no-number” section
+    section_map: Dict[str, List[str]] = {}
+    current_sec: str = None
     buffer: List[str] = []
 
-    def flush_buffer():
-        para = '\n'.join(buffer).strip()
-        if para:
-            sections.setdefault(current_sec, []).append(para)
-        buffer.clear()
+    def flush_section():
+        nonlocal current_sec, buffer
+        if current_sec is not None:
+            # Join everything we’ve buffered for this section
+            section_map[current_sec] = ''.join(buffer).rstrip()
+        buffer = []
 
     for line in lines:
         m = section_re.match(line)
         if m:
-            # new section begins
-            flush_buffer()
+            # Found a new section header
+            # First flush the previous one
+            flush_section()
+            # Start a new buffer, include this header line
             current_sec = m.group(1)
-            sections.setdefault(current_sec, [])
-            # remainder of line becomes first paragraph line
-            rest = line[m.end():].strip()
-            if rest:
-                buffer.append(rest)
+            buffer = [line]
         else:
-            if line.strip() == '':
-                # blank line: paragraph boundary
-                flush_buffer()
-            else:
-                buffer.append(line)
-    flush_buffer()
-    return sections
+            # Continuation of current section (or preamble if no section yet)
+            if current_sec is None:
+                # Skip any lines before the first numbered section
+                continue
+            buffer.append(line)
 
-def diff_paragraphs(old_paras: List[Paragraph], new_paras: List[Paragraph]) -> Change:
-    """
-    Compare two lists of paragraphs and return dict with keys 'added', 'removed', 'changed'.
-    Each value is a list of (index, paragraph) tuples.
-    """
-    sm = SequenceMatcher(a=old_paras, b=new_paras, autojunk=False)
-    changes: Change = {'added': [], 'removed': [], 'changed': []}
+    # Flush the last section
+    flush_section()
+    return section_map
 
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == 'delete':
-            for i in range(i1, i2):
-                changes['removed'].append((i, old_paras[i]))
-        elif tag == 'insert':
-            for j in range(j1, j2):
-                changes['added'].append((j, new_paras[j]))
-        elif tag == 'replace':
-            for i, j in zip(range(i1, i2), range(j1, j2)):
-                changes['changed'].append(((i, old_paras[i]), (j, new_paras[j])))
-            # handle mismatched counts
-            if (i2 - i1) < (j2 - j1):
-                for j in range(j1 + (i2 - i1), j2):
-                    changes['added'].append((j, new_paras[j]))
-            elif (i2 - i1) > (j2 - j1):
-                for i in range(i1 + (j2 - j1), i2):
-                    changes['removed'].append((i, old_paras[i]))
+
+def detect_paragraph_section_changes(
+    old_text: str,
+    new_text: str
+) -> List[Change]:
+    """
+    Compare two documents at the section level and return a flat list of changes.
+    """
+    old_map = split_into_section_map(old_text)
+    new_map = split_into_section_map(new_text)
+
+    old_keys = set(old_map)
+    new_keys = set(new_map)
+
+    changes: List[Change] = []
+
+    # Added sections
+    for sec in sorted(new_keys - old_keys, key=lambda s: list(map(int, s.split('.')))):
+        changes.append({
+            "section": sec,
+            "change_type": "Added",
+            "old": "",
+            "new": new_map[sec]
+        })
+
+    # Removed sections
+    for sec in sorted(old_keys - new_keys, key=lambda s: list(map(int, s.split('.')))):
+        changes.append({
+            "section": sec,
+            "change_type": "Removed",
+            "old": old_map[sec],
+            "new": ""
+        })
+
+    # Modified sections
+    for sec in sorted(old_keys & new_keys, key=lambda s: list(map(int, s.split('.')))):
+        if old_map[sec] != new_map[sec]:
+            changes.append({
+                "section": sec,
+                "change_type": "Modified",
+                "old": old_map[sec],
+                "new": new_map[sec]
+            })
+
     return changes
 
-def detect_paragraph_section_changes(old_text: str, new_text: str) -> Dict[SectionName, Change]:
-    """
-    Top-level function. Returns a dict mapping each section to its Change dict.
-    Sections present in one version only show all paras as added/removed.
-    """
-    old_secs = split_into_sections(old_text)
-    new_secs = split_into_sections(new_text)
-    all_sections = set(old_secs) | set(new_secs)
 
-    result: Dict[SectionName, Change] = {}
-    for sec in sorted(all_sections, key=lambda s: list(map(int, s.split('.')))):
-        old_paras = old_secs.get(sec, [])
-        new_paras = new_secs.get(sec, [])
-        result[sec] = diff_paragraphs(old_paras, new_paras)
-    return result
-
-# --- Example usage / test ---
-if __name__ == '__main__':
+# --- quick sanity test ---
+if __name__ == "__main__":
     old = """
-1. Introduction
+1. Intro
+This is paragraph one.
 
-This is the first paragraph.
-This is still part of the first paragraph.
+Still in section 1.
 
-This is the second paragraph.
-
-2. Methods
-
-Here is a method description.
-"""
-
-    new = """
-1. Introduction
-
-This is the first paragraph, with an edit.
-This is still part of the first paragraph.
-
-This is the second paragraph.
-
-2. Methods
-
-Here is a method description.
-
-An added third paragraph in methods.
+2. Details
+Detail line A.
+Detail line B.
 
 3. Conclusion
-
-A completely new section.
+Done.
 """
-    changes = detect_paragraph_section_changes(old, new)
-    for sec, diff in changes.items():
-        print(f"Section {sec}:")
-        for typ in ('removed', 'added'):
-            for idx, para in diff[typ]:
-                print(f"  {typ.upper()} at idx {idx}:")
-                print(f"    {para!r}")
-        for ((i, o), (j, n)) in diff['changed']:
-            print(f"  CHANGED old idx {i} -> new idx {j}:")
-            print(f"    - {o!r}")
-            print(f"    + {n!r}")
-        print()
+    new = """
+1. Intro
+This is paragraph one, edited.
+
+Still in section 1.
+
+2. Details
+Detail line A.
+Detail line B.
+New extra detail.
+
+4. Appendix
+Some extra stuff.
+"""
+    for change in detect_paragraph_section_changes(old, new):
+        print(f"{change['change_type']} section {change['section']}")
+        print("OLD:")
+        print(change['old'])
+        print("---")
+        print("NEW:")
+        print(change['new'])
+        print("========\n")

@@ -1,7 +1,6 @@
 import json
 import logging
-import re
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import List, Dict, Any, AsyncGenerator
@@ -12,7 +11,7 @@ from langchain_community.llms import Ollama
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
 
-from diff_utils import detect_paragraph_section_changes as detect_changes  # unchanged
+from diff_utils import detect_paragraph_section_changes as detect_changes  # now returns List[Dict]
 
 # Configure logging
 logging.basicConfig(
@@ -45,66 +44,26 @@ memory = ConversationBufferMemory()
 conversation = ConversationChain(llm=llm, memory=memory)
 
 
-def flatten_changes(
-    raw: Dict[str, Dict[str, List[Any]]]
-) -> List[Dict[str, Any]]:
-    """
-    Turn the nested { section: { 'added': [...], 'removed': [...], 'changed': [...] } }
-    into a flat list of change-record dicts with keys:
-      - section
-      - change_type: 'Added' | 'Removed' | 'Modified'
-      - old: str
-      - new: str
-    """
-    out: List[Dict[str, Any]] = []
-    for section, diffs in raw.items():
-        # Added paragraphs
-        for idx, new_para in diffs.get('added', []):
-            out.append({
-                'section': section,
-                'change_type': 'Added',
-                'old': '',
-                'new': new_para,
-                'index': idx
-            })
-        # Removed paragraphs
-        for idx, old_para in diffs.get('removed', []):
-            out.append({
-                'section': section,
-                'change_type': 'Removed',
-                'old': old_para,
-                'new': '',
-                'index': idx
-            })
-        # Modified paragraphs
-        for (old_idx, old_para), (new_idx, new_para) in diffs.get('changed', []):
-            out.append({
-                'section': section,
-                'change_type': 'Modified',
-                'old': old_para,
-                'new': new_para,
-                'old_index': old_idx,
-                'new_index': new_idx
-            })
-    return out
-
-
 def analyze_with_llm(change: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Sends a prompt about the single change to the LLM, expects JSON with
+    change_summary, change_type, potential_impact.
+    """
     prompt = (
         "You are a regulatory compliance assistant. Output valid JSON with:\n"
         "1) change_summary: one-sentence summary.\n"
         "2) change_type: one of ['New Requirement','Clarification of Existing Requirement',"
         "'Deletion of Requirement','Minor Edit'].\n"
         "3) potential_impact: brief impact on SOPs.\n\n"
-        f"Section: {change.get('section')}\n"
+        f"Section.Key: {change.get('section')}\n"
         f"Old Text:\n{change.get('old')}\n\n"
         f"New Text:\n{change.get('new')}"
     )
     try:
-        response = conversation.run(prompt)
-        return json.loads(response)
+        raw = conversation.run(prompt)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse LLM response: {response}")
+        logger.error(f"Failed to parse LLM response: {raw}")
         raise
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -112,6 +71,9 @@ def analyze_with_llm(change: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def change_streamer(changes: List[Dict[str, Any]]) -> AsyncGenerator[bytes, None]:
+    """
+    Streams out a JSON array, calling the LLM on Added/Modified changes.
+    """
     executor = ThreadPoolExecutor(max_workers=1)
     loop = asyncio.get_event_loop()
 
@@ -119,10 +81,9 @@ async def change_streamer(changes: List[Dict[str, Any]]) -> AsyncGenerator[bytes
     first = True
 
     for change in changes:
-        # throttle for demo; remove or adjust in production
+        # small delay for demonstration; adjust or remove as needed
         await asyncio.sleep(0.1)
 
-        # For Added or Modified we call the LLM; for Removed we skip it
         if change['change_type'] in ('Added', 'Modified'):
             try:
                 details = await loop.run_in_executor(executor, analyze_with_llm, change)
@@ -133,6 +94,7 @@ async def change_streamer(changes: List[Dict[str, Any]]) -> AsyncGenerator[bytes
                     'potential_impact': str(e)
                 }
         else:
+            # For "Removed"
             details = {
                 'change_summary': 'Section removed',
                 'change_type': 'Deletion of Requirement',
@@ -159,16 +121,14 @@ async def analyze(
     new_text = (await file_v2.read()).decode('utf-8', errors='ignore')
     logger.info(f"Received files: {file_v1.filename}, {file_v2.filename}")
 
-    # Detect and flatten
-    raw_changes = detect_changes(old_text, new_text)
-    flat = flatten_changes(raw_changes)
+    # detect_changes now returns a flat List[Dict[str, old, new, section, change_type]]
+    changes = detect_changes(old_text, new_text)
 
-    # If no individual changes, return empty list
-    if not flat:
+    if not changes:
         return JSONResponse({'changes': []})
 
     return StreamingResponse(
-        change_streamer(flat),
+        change_streamer(changes),
         media_type="application/json"
     )
 
